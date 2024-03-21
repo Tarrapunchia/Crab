@@ -31,6 +31,7 @@ struct Editor {
 enum Message {
     Edit(text_editor::Action),
     FileOpened(Result<(PathBuf, Arc<String>), Error>),
+    New,
     Open,
 }
 
@@ -65,6 +66,12 @@ impl Application for Editor {
                 Command::none()
             }
             Message::Open => Command::perform(pick_file(), Message::FileOpened),
+            Message::New => {
+                self.path = None;
+                self.content = text_editor::Content::new();
+
+                Command::none()
+            },
             Message::FileOpened(Ok((path, content))) => {
                 self.path = Some(path);
                 self.content = text_editor::Content::with(&content);
@@ -80,22 +87,24 @@ impl Application for Editor {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let controls = row![button("Open").on_press(Message::Open)];
+        let controls = row![button("New").on_press(Message::New), button("Open").on_press(Message::Open)].spacing(5);
         
         let input = text_editor(&self.content).on_edit(Message::Edit);
 
-        let file_path = match self.path.as_deref().and_then(Path::to_str) {
-            Some(path) => text(path).size(14),
-            None => text(""),
+        
+        let status_bar = {
+            let file_path = match self.path.as_deref().and_then(Path::to_str) {
+                Some(path) => text(path).size(14),
+                None => text(""),
+            };
+            
+            let position = {
+                let (line, column) = self.content.cursor_position();
+                
+                text(format!("{}:{}", line + 1, column + 1))
+            };
+            row![file_path, horizontal_space(Length::Fill), position];
         };
-
-        let position = {
-            let (line, column) = self.content.cursor_position();
-
-            text(format!("{}:{}", line + 1, column + 1))
-        };
-
-        let status_bar = row![file_path, horizontal_space(Length::Fill), position];
         container(column![controls, input, status_bar].spacing(5)).padding(5).into()
     }
 
