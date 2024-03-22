@@ -33,6 +33,7 @@ enum Message {
     FileOpened(Result<(PathBuf, Arc<String>), Error>),
     New,
     Open,
+    // Save,
 }
 
 impl Application for Editor {
@@ -87,7 +88,10 @@ impl Application for Editor {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let controls = row![button("New").on_press(Message::New), button("Open").on_press(Message::Open)].spacing(5);
+        let controls = row![
+            button("New").on_press(Message::New),
+            button("Open").on_press(Message::Open)]
+            .spacing(5);
         
         let input = text_editor(&self.content).on_edit(Message::Edit);
 
@@ -95,7 +99,7 @@ impl Application for Editor {
         let status_bar = {
             let file_path = match self.path.as_deref().and_then(Path::to_str) {
                 Some(path) => text(path).size(14),
-                None => text(""),
+                None => text("New File"),
             };
             
             let position = {
@@ -103,7 +107,7 @@ impl Application for Editor {
                 
                 text(format!("{}:{}", line + 1, column + 1))
             };
-            row![file_path, horizontal_space(Length::Fill), position];
+            row![file_path, horizontal_space(Length::Fill), position]
         };
         container(column![controls, input, status_bar].spacing(5)).padding(5).into()
     }
