@@ -6,7 +6,7 @@ use std::{
 };
 use tokio::fs;
 use iced::{
-        executor, widget::{
+        color, executor, widget::{
             button,
             column,
             container,
@@ -30,10 +30,11 @@ struct Editor {
 #[derive(Debug, Clone)]
 enum Message {
     Edit(text_editor::Action),
+    Open,
     FileOpened(Result<(PathBuf, Arc<String>), Error>),
     New,
-    Open,
-    // Save,
+    Save,
+    FileSaved(Result<(), Error>),
 }
 
 impl Application for Editor {
@@ -63,19 +64,34 @@ impl Application for Editor {
         match message {
             Message::Edit(action) => {
                 self.content.edit(action);
-
+                self.error = None; // clear error when re-editing
                 Command::none()
             }
             Message::Open => Command::perform(pick_file(), Message::FileOpened),
+            Message::FileOpened(Ok((path, content))) => {
+                self.path = Some(path);
+                self.content = text_editor::Content::with(&content);
+
+                Command::none()
+            },
             Message::New => {
                 self.path = None;
                 self.content = text_editor::Content::new();
 
                 Command::none()
             },
-            Message::FileOpened(Ok((path, content))) => {
-                self.path = Some(path);
-                self.content = text_editor::Content::with(&content);
+            Message::Save => {
+                let text = self.content.text();
+                let path = self.path.clone();
+                Command::perform(save_file(path, text), Message::FileSaved)
+            },
+            Message::FileSaved(Ok(())) => {
+                self.error = None;
+
+                Command::none()
+            },
+            Message::FileSaved(Err(error)) => {
+                self.error = Some(error);
 
                 Command::none()
             },
@@ -90,16 +106,21 @@ impl Application for Editor {
     fn view(&self) -> Element<'_, Message> {
         let controls = row![
             button("New").on_press(Message::New),
-            button("Open").on_press(Message::Open)]
+            button("Open").on_press(Message::Open),
+            button("Save").on_press(Message::Save)]
             .spacing(5);
         
         let input = text_editor(&self.content).on_edit(Message::Edit);
 
         
         let status_bar = {
-            let file_path = match self.path.as_deref().and_then(Path::to_str) {
+            let status = if let Some(Error::IO(error)) = self.error.as_ref() {
+                text(error.to_string())
+                } else {
+                match self.path.as_deref().and_then(Path::to_str) {
                 Some(path) => text(path).size(14),
                 None => text("New File"),
+                }
             };
             
             let position = {
@@ -107,7 +128,7 @@ impl Application for Editor {
                 
                 text(format!("{}:{}", line + 1, column + 1))
             };
-            row![file_path, horizontal_space(Length::Fill), position]
+            row![status, horizontal_space(Length::Fill), position]
         };
         container(column![controls, input, status_bar].spacing(5)).padding(5).into()
     }
@@ -144,6 +165,23 @@ async fn load_file(path: PathBuf) -> Result<(PathBuf, Arc<String>), Error> {
         .map_err(Error::IO)?;
 
     Ok((path, content))
+}
+
+/// file saver
+async fn save_file(path: Option<PathBuf>, text: String) -> Result<(), Error> {
+    // if we have a path we save to it, else we ask for a new path
+    let path = if let Some(path) = path { path } else {
+        rfd::AsyncFileDialog::new()
+            .set_title("Choose a file name...")
+            .save_file()
+            .await
+            .ok_or(Error::DialogClosed)
+            .map(|handle| handle.path().to_owned())?
+    };
+
+    tokio::fs::write(&path, &text)
+        .await
+        .map_err(|error| Error::IO(error.kind()))
 }
 
 #[derive(Debug, Clone)]
